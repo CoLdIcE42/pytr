@@ -7,6 +7,10 @@ from .event import Event
 from .event_formatter import EventCsvFormatter
 from .utils import get_logger
 
+import os
+from datetime import datetime
+from typing import Iterable
+
 
 def export_transactions(input_path, output_path, lang="auto", sort=False, date_isoformat: bool = False):
     """
@@ -86,8 +90,8 @@ def export_banking4(input_path, output_path, lang='auto'):
     log.info('Write transaction entries')
     with open(output_path, 'w', encoding='utf-8') as f:
         # f.write('Datum;Typ;Stück;amount;Wert;Gebühren;ISIN;name\n')
-        csv_fmt = '{date};{type};{value}\n'
-        header = csv_fmt.format(date='date', type='type', value='value')
+        csv_fmt = '{date};{type};{value};{label}\n'
+        header = csv_fmt.format(date='date', type='type', value='value',label="label")
         f.write(header)
 
         for event in timeline1+timeline2:
@@ -103,46 +107,66 @@ def export_banking4(input_path, output_path, lang='auto'):
                 continue
 
             # SEPA inflows and outflows 
-            if event["eventType"] in ["PAYMENT_INBOUND","INCOMING_TRANSFER","OUTGOING_TRANSFER","OUTGOING_TRANSFER_DELEGATION"]:
-                 f.write(csv_fmt.format(date=date, type=clean_strings(event['eventType']), value=event['amount']["value"]))
-            # Card refund, Buys, atm withdrawal, iterest payouts
-            elif event["eventType"] in ["card_refund","TRADE_INVOICE","ORDER_EXECUTED","card_successful_atm_withdrawal","INTEREST_PAYOUT_CREATED","TAX_REFUND","INTEREST_PAYOUT","TRADE_CORRECTED","ssp_tax_correction_invoice"]:
+            if event["eventType"] in ["PAYMENT_INBOUND","INCOMING_TRANSFER","OUTGOING_TRANSFER","OUTGOING_TRANSFER_DELEGATION","INCOMING_TRANSFER_DELEGATION"]:
+                if(event["status"] == "CANCELED"):
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["status"]+" "+event['eventType']+" "+str(event['amount']["value"])), value=0.00,label="Umbuchung"))
+                else:
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event['eventType']), value=round(event['amount']["value"],2),label="Umbuchung"))
+            # Kauf
+            elif event["eventType"] in ["TRADE_INVOICE","ORDER_EXECUTED","TRADE_CORRECTED","trading_trade_executed"]:
                 title = event['title']
                 subtitle = event["subtitle"]
                 if title is None:
                     title = 'no title'
                 if subtitle is None:
                     subtitle = "no subtitle"
-                f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=event['amount']["value"]))
+                f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=round(event['amount']["value"],2),label="Kauf"))
+            # Zinsen
+            elif event["eventType"] in ["INTEREST_PAYOUT_CREATED","TAX_REFUND","INTEREST_PAYOUT","ssp_tax_correction_invoice"]:
+                title = event['title']
+                subtitle = event["subtitle"]
+                if title is None:
+                    title = 'no title'
+                if subtitle is None:
+                    subtitle = "no subtitle"
+                f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=round(event['amount']["value"],2),label="Zinsen"))
             #Debit payments    
-            elif event["eventType"] in ["card_successful_transaction"]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["eventType"]+": "+event['title'] ), value=event['amount']["value"]))
-            #dividends
-            elif event["eventType"] in ["ssp_corporate_action_invoice_cash","CREDIT",]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=event['amount']["value"]))
+            elif event["eventType"] in ["card_successful_transaction","card_successful_atm_withdrawal","card_refund"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["eventType"]+": "+event['title'] ), value=round(event['amount']["value"], 2),label="Ausgabe"))
+            #  dividends,
+            elif event["eventType"] in ["ssp_corporate_action_invoice_cash"]:
+                #reclassification of
+                if(event["status"] == "CANCELED"):
+                    print("WARN: "+str(date)+" DIVIDEND RECLASSIFICATION "+event["subtitle"]+": "+event["title"]+" "+str(event['amount']["value"]))
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["status"]+" "+event["subtitle"]+": "+event["title"]), value=0.00,label="Dividende"))
+                else:
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Dividende"))
+            # legacy dividend payments
+            elif event["eventType"] in ["CREDIT"]:
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Dividende"))
             #Saveback (creates a zero entry just for informational purposes)
             elif event["eventType"] in ["benefits_saveback_execution"]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]+": "+str(-1*event["amount"]["value"])), value="0.00"))
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]+": "+str(-1*event["amount"]["value"])), value=0.00, label="Kauf"))
             # Savingsplan
-            elif event["eventType"] in ["SAVINGS_PLAN_EXECUTED","SAVINGS_PLAN_INVOICE_CREATED"]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=event['amount']["value"]))
+            elif event["eventType"] in ["SAVINGS_PLAN_EXECUTED","SAVINGS_PLAN_INVOICE_CREATED","trading_savingsplan_executed"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Kauf"))
             #Tax payments
             elif event["eventType"] in ["PRE_DETERMINED_TAX_BASE"]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=event['amount']["value"]))
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Steuer"))
             #Card order
             elif event["eventType"] in ["card_order_billed"]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]), value=event['amount']["value"]))
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]), value=round(event['amount']["value"],2),label="Ausgabe"))
             #Referral
             elif event["eventType"] in ["REFERRAL_FIRST_TRADE_EXECUTED_INVITER"]:
-                f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=event['amount']["value"]))
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=round(event['amount']["value"],2),label="Einnahme"))
             #Capital events (e.g. return of capital)
             elif event["eventType"] in ["SHAREBOOKING_TRANSACTIONAL"]:
                 if (event["subtitle"]=="Reinvestierung"):
                     pass
                 else:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=event['amount']["value"]))
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=round(event['amount']["value"],2),label="Kapitalevent"))
             # Events that are not transactions tracked by this function
-            elif event["eventType"] in ["EXEMPTION_ORDER_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED","AML_SOURCE_OF_WEALTH_RESPONSE_EXECUTED","DEVICE_RESET",
+            elif event["eventType"] in ["current_account_activated","trading_order_expired","EXEMPTION_ORDER_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED","AML_SOURCE_OF_WEALTH_RESPONSE_EXECUTED","DEVICE_RESET",
                                         "REFERENCE_ACCOUNT_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED_AUTOMATICALLY","CASH_ACCOUNT_CHANGED","ACCOUNT_TRANSFER_INCOMING",
                                         "card_failed_transaction","EMAIL_VALIDATED","PUK_CREATED","SECURITIES_ACCOUNT_CREATED","card_successful_verification",
                                         "ssp_dividend_option_customer_instruction","new_tr_iban","DOCUMENTS_ACCEPTED","EX_POST_COST_REPORT","INSTRUCTION_CORPORATE_ACTION",
