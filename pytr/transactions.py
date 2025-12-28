@@ -11,6 +11,9 @@ from .event import ConditionalEventType, Event, PPEventType
 from .translation import setup_translation
 from .utils import get_logger
 
+import os
+from datetime import datetime
+
 SUPPORTED_LANGUAGES = {
     "cs",
     "da",
@@ -178,120 +181,120 @@ class TransactionExporter:
         self._log.info("Transactions exported.")
 
     
-    def export_banking4(input_path, output_path, lang='auto'):
-        '''
-        Create a CSV with most of transactions available for import in banking4
-        '''
-        log = get_logger(__name__)
-        if lang == 'auto':
-            locale = getdefaultlocale()[0]
-            if locale is None:
-                lang = 'en'
-            else:
-                lang = locale.split('_')[0]
-        #Build Strings
-        timeline1_loc = os.path.join(input_path,"other_events.json")
-        timeline2_loc = os.path.join(input_path,"events_with_documents.json")
+def export_banking4(input_path, output_path, lang='auto'):
+    '''
+    Create a CSV with most of transactions available for import in banking4
+    '''
+    log = get_logger(__name__)
+    if lang == 'auto':
+        locale = getdefaultlocale()[0]
+        if locale is None:
+            lang = 'en'
+        else:
+            lang = locale.split('_')[0]
+    #Build Strings
+    timeline1_loc = os.path.join(input_path,"other_events.json")
+    timeline2_loc = os.path.join(input_path,"events_with_documents.json")
 
-        # Read relevant deposit timeline entries
-        with open(timeline1_loc, encoding='utf-8') as f:
-            timeline1 = json.load(f)
-        with open(timeline2_loc, encoding='utf-8') as f:
-            timeline2 = json.load(f)    
+    # Read relevant deposit timeline entries
+    with open(timeline1_loc, encoding='utf-8') as f:
+        timeline1 = json.load(f)
+    with open(timeline2_loc, encoding='utf-8') as f:
+        timeline2 = json.load(f)    
 
-        # Write deposit_transactions.csv file
-        # date, transaction, shares, amount, total, fee, isin, name
-        log.info('Write transaction entries')
-        with open(output_path, 'w', encoding='utf-8') as f:
-            # f.write('Datum;Typ;Stück;amount;Wert;Gebühren;ISIN;name\n')
-            csv_fmt = '{date};{type};{value};{label}\n'
-            header = csv_fmt.format(date='date', type='type', value='value',label="label")
-            f.write(header)
+    # Write deposit_transactions.csv file
+    # date, transaction, shares, amount, total, fee, isin, name
+    log.info('Write transaction entries')
+    with open(output_path, 'w', encoding='utf-8') as f:
+        # f.write('Datum;Typ;Stück;amount;Wert;Gebühren;ISIN;name\n')
+        csv_fmt = '{date};{type};{value};{label}\n'
+        header = csv_fmt.format(date='date', type='type', value='value',label="label")
+        f.write(header)
 
-            for event in timeline1+timeline2:
-                dateTime = datetime.fromisoformat(event['timestamp'][:19])
-                date = dateTime.strftime('%Y-%m-%d')
+        for event in timeline1+timeline2:
+            dateTime = datetime.fromisoformat(event['timestamp'][:19])
+            date = dateTime.strftime('%Y-%m-%d')
 
-                try:
-                    body = event['body']
-                except KeyError:
-                    body = ''
+            try:
+                body = event['body']
+            except KeyError:
+                body = ''
 
-                if 'storniert' in body:
-                    continue
+            if 'storniert' in body:
+                continue
 
-                # SEPA inflows and outflows 
-                if event["eventType"] in ["PAYMENT_INBOUND","INCOMING_TRANSFER","OUTGOING_TRANSFER","OUTGOING_TRANSFER_DELEGATION","INCOMING_TRANSFER_DELEGATION"]:
-                    if(event["status"] == "CANCELED"):
-                        f.write(csv_fmt.format(date=date, type=clean_strings(event["status"]+" "+event['eventType']+" "+str(event['amount']["value"])), value=0.00,label="Umbuchung"))
-                    else:
-                        f.write(csv_fmt.format(date=date, type=clean_strings(event['eventType']), value=round(event['amount']["value"],2),label="Umbuchung"))
-                # Kauf
-                elif event["eventType"] in ["TRADE_INVOICE","ORDER_EXECUTED","TRADE_CORRECTED","trading_trade_executed"]:
-                    title = event['title']
-                    subtitle = event["subtitle"]
-                    if title is None:
-                        title = 'no title'
-                    if subtitle is None:
-                        subtitle = "no subtitle"
-                    f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=round(event['amount']["value"],2),label="Kauf"))
-                # Zinsen
-                elif event["eventType"] in ["INTEREST_PAYOUT_CREATED","TAX_REFUND","INTEREST_PAYOUT","ssp_tax_correction_invoice"]:
-                    title = event['title']
-                    subtitle = event["subtitle"]
-                    if title is None:
-                        title = 'no title'
-                    if subtitle is None:
-                        subtitle = "no subtitle"
-                    f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=round(event['amount']["value"],2),label="Zinsen"))
-                #Debit payments    
-                elif event["eventType"] in ["card_successful_transaction","card_successful_atm_withdrawal","card_refund"]:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["eventType"]+": "+event['title'] ), value=round(event['amount']["value"], 2),label="Ausgabe"))
-                #  dividends,
-                elif event["eventType"] in ["ssp_corporate_action_invoice_cash"]:
-                    #reclassification of
-                    if(event["status"] == "CANCELED"):
-                        print("WARN: "+str(date)+" DIVIDEND RECLASSIFICATION "+event["subtitle"]+": "+event["title"]+" "+str(event['amount']["value"]))
-                        f.write(csv_fmt.format(date=date, type=clean_strings(event["status"]+" "+event["subtitle"]+": "+event["title"]), value=0.00,label="Dividende"))
-                    else:
-                        f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Dividende"))
-                # legacy dividend payments
-                elif event["eventType"] in ["CREDIT"]:
-                        f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Dividende"))
-                #Saveback (creates a zero entry just for informational purposes)
-                elif event["eventType"] in ["benefits_saveback_execution"]:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]+": "+str(-1*event["amount"]["value"])), value=0.00, label="Kauf"))
-                # Savingsplan
-                elif event["eventType"] in ["SAVINGS_PLAN_EXECUTED","SAVINGS_PLAN_INVOICE_CREATED","trading_savingsplan_executed"]:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Kauf"))
-                #Tax payments
-                elif event["eventType"] in ["PRE_DETERMINED_TAX_BASE"]:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Steuer"))
-                #Card order
-                elif event["eventType"] in ["card_order_billed"]:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]), value=round(event['amount']["value"],2),label="Ausgabe"))
-                #Referral
-                elif event["eventType"] in ["REFERRAL_FIRST_TRADE_EXECUTED_INVITER"]:
-                    f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=round(event['amount']["value"],2),label="Einnahme"))
-                #Capital events (e.g. return of capital)
-                elif event["eventType"] in ["SHAREBOOKING_TRANSACTIONAL"]:
-                    if (event["subtitle"]=="Reinvestierung"):
-                        pass
-                    else:
-                        f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=round(event['amount']["value"],2),label="Kapitalevent"))
-                # Events that are not transactions tracked by this function
-                elif event["eventType"] in ["current_account_activated","trading_order_expired","EXEMPTION_ORDER_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED","AML_SOURCE_OF_WEALTH_RESPONSE_EXECUTED","DEVICE_RESET",
-                                            "REFERENCE_ACCOUNT_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED_AUTOMATICALLY","CASH_ACCOUNT_CHANGED","ACCOUNT_TRANSFER_INCOMING",
-                                            "card_failed_transaction","EMAIL_VALIDATED","PUK_CREATED","SECURITIES_ACCOUNT_CREATED","card_successful_verification",
-                                            "ssp_dividend_option_customer_instruction","new_tr_iban","DOCUMENTS_ACCEPTED","EX_POST_COST_REPORT","INSTRUCTION_CORPORATE_ACTION",
-                                            "SHAREBOOKING","GESH_CORPORATE_ACTION","GENERAL_MEETING","QUARTERLY_REPORT","DOCUMENTS_ACCEPTED","GENERAL_MEETING","INSTRUCTION_CORPORATE_ACTION",
-                                            "DOCUMENTS_CHANGED","MATURITY","YEAR_END_TAX_REPORT","STOCK_PERK_REFUNDED","ORDER_CANCELED","ORDER_EXPIRED","DOCUMENTS_CREATED","CUSTOMER_CREATED","card_failed_verification",
-                                            ]:
+            # SEPA inflows and outflows 
+            if event["eventType"] in ["PAYMENT_INBOUND","INCOMING_TRANSFER","OUTGOING_TRANSFER","OUTGOING_TRANSFER_DELEGATION","INCOMING_TRANSFER_DELEGATION"]:
+                if(event["status"] == "CANCELED"):
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["status"]+" "+event['eventType']+" "+str(event['amount']["value"])), value=0.00,label="Umbuchung"))
+                else:
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event['eventType']), value=round(event['amount']["value"],2),label="Umbuchung"))
+            # Kauf
+            elif event["eventType"] in ["TRADE_INVOICE","ORDER_EXECUTED","TRADE_CORRECTED","trading_trade_executed"]:
+                title = event['title']
+                subtitle = event["subtitle"]
+                if title is None:
+                    title = 'no title'
+                if subtitle is None:
+                    subtitle = "no subtitle"
+                f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=round(event['amount']["value"],2),label="Kauf"))
+            # Zinsen
+            elif event["eventType"] in ["INTEREST_PAYOUT_CREATED","TAX_REFUND","INTEREST_PAYOUT","ssp_tax_correction_invoice"]:
+                title = event['title']
+                subtitle = event["subtitle"]
+                if title is None:
+                    title = 'no title'
+                if subtitle is None:
+                    subtitle = "no subtitle"
+                f.write(csv_fmt.format(date=date, type=clean_strings(title+": "+subtitle), value=round(event['amount']["value"],2),label="Zinsen"))
+            #Debit payments    
+            elif event["eventType"] in ["card_successful_transaction","card_successful_atm_withdrawal","card_refund"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["eventType"]+": "+event['title'] ), value=round(event['amount']["value"], 2),label="Ausgabe"))
+            #  dividends,
+            elif event["eventType"] in ["ssp_corporate_action_invoice_cash"]:
+                #reclassification of
+                if(event["status"] == "CANCELED"):
+                    print("WARN: "+str(date)+" DIVIDEND RECLASSIFICATION "+event["subtitle"]+": "+event["title"]+" "+str(event['amount']["value"]))
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["status"]+" "+event["subtitle"]+": "+event["title"]), value=0.00,label="Dividende"))
+                else:
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Dividende"))
+            # legacy dividend payments
+            elif event["eventType"] in ["CREDIT"]:
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Dividende"))
+            #Saveback (creates a zero entry just for informational purposes)
+            elif event["eventType"] in ["benefits_saveback_execution"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]+": "+str(-1*event["amount"]["value"])), value=0.00, label="Kauf"))
+            # Savingsplan
+            elif event["eventType"] in ["SAVINGS_PLAN_EXECUTED","SAVINGS_PLAN_INVOICE_CREATED","trading_savingsplan_executed"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Kauf"))
+            #Tax payments
+            elif event["eventType"] in ["PRE_DETERMINED_TAX_BASE"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["subtitle"]+": "+event["title"]), value=round(event['amount']["value"],2),label="Steuer"))
+            #Card order
+            elif event["eventType"] in ["card_order_billed"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]), value=round(event['amount']["value"],2),label="Ausgabe"))
+            #Referral
+            elif event["eventType"] in ["REFERRAL_FIRST_TRADE_EXECUTED_INVITER"]:
+                f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=round(event['amount']["value"],2),label="Einnahme"))
+            #Capital events (e.g. return of capital)
+            elif event["eventType"] in ["SHAREBOOKING_TRANSACTIONAL"]:
+                if (event["subtitle"]=="Reinvestierung"):
                     pass
                 else:
-                    print("ERROR: "+"Type: "+event["eventType"]+"  Title: "+event["title"])
+                    f.write(csv_fmt.format(date=date, type=clean_strings(event["title"]+": "+event["subtitle"]),value=round(event['amount']["value"],2),label="Kapitalevent"))
+            # Events that are not transactions tracked by this function
+            elif event["eventType"] in ["current_account_activated","trading_order_expired","EXEMPTION_ORDER_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED","AML_SOURCE_OF_WEALTH_RESPONSE_EXECUTED","DEVICE_RESET",
+                                        "REFERENCE_ACCOUNT_CHANGED","EXEMPTION_ORDER_CHANGE_REQUESTED_AUTOMATICALLY","CASH_ACCOUNT_CHANGED","ACCOUNT_TRANSFER_INCOMING",
+                                        "card_failed_transaction","EMAIL_VALIDATED","PUK_CREATED","SECURITIES_ACCOUNT_CREATED","card_successful_verification",
+                                        "ssp_dividend_option_customer_instruction","new_tr_iban","DOCUMENTS_ACCEPTED","EX_POST_COST_REPORT","INSTRUCTION_CORPORATE_ACTION",
+                                        "SHAREBOOKING","GESH_CORPORATE_ACTION","GENERAL_MEETING","QUARTERLY_REPORT","DOCUMENTS_ACCEPTED","GENERAL_MEETING","INSTRUCTION_CORPORATE_ACTION",
+                                        "DOCUMENTS_CHANGED","MATURITY","YEAR_END_TAX_REPORT","STOCK_PERK_REFUNDED","ORDER_CANCELED","ORDER_EXPIRED","DOCUMENTS_CREATED","CUSTOMER_CREATED","card_failed_verification",
+                                        ]:
+                pass
+            else:
+                print("ERROR: "+"Type: "+event["eventType"]+"  Title: "+event["title"])
 
-        log.info('transaction creation finished!')
+    log.info('transaction creation finished!')
 
-    def clean_strings(text: str):
-        return text.replace("\n", "")
+def clean_strings(text: str):
+    return text.replace("\n", "")
