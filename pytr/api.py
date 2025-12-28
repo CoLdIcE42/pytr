@@ -197,7 +197,7 @@ class TradeRepublicApi:
             headers=headers,
         )
 
-    def inititate_weblogin(self):
+    def initiate_weblogin(self):
         r = self._websession.post(
             f"{self._host}/api/v1/auth/web/login",
             json={"phoneNumber": self.phone_no, "pin": self.pin},
@@ -267,7 +267,7 @@ class TradeRepublicApi:
         if self._ws and self._ws.close_code is None:
             return self._ws
 
-        self.log.info("Connecting to websocket ...")
+        self.log.info("Connecting to websocket...")
         ssl_context = ssl.create_default_context(cafile=certifi.where())
         extra_headers = None
         connection_message = {"locale": self._locale}
@@ -299,7 +299,7 @@ class TradeRepublicApi:
         if not response == "connected":
             raise ValueError(f"Connection Error: {response}")
 
-        self.log.info("Connected to websocket ...")
+        self.log.info("Connected to websocket...")
 
         return self._ws
 
@@ -400,7 +400,7 @@ class TradeRepublicApi:
             await self.unsubscribe(subscription_id)
 
     def run_blocking(self, fut, timeout=5.0):
-        return asyncio.get_event_loop().run_until_complete(self._receive_one(fut, timeout=timeout))
+        return asyncio.run(self._receive_one(fut, timeout=timeout))
 
     async def portfolio(self):
         return await self.subscribe({"type": "portfolio"})
