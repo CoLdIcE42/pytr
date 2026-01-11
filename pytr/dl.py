@@ -266,7 +266,7 @@ class DL:
                 for item in sections:
                     ititle = item.get("title")
                     if (
-                        ititle.startswith("Du hast ") and (ititle.endswith(" erhalten") or ititle.endswith(" gesendet"))
+                        ititle is not None and ititle.startswith("Du hast ") and (ititle.endswith(" erhalten") or ititle.endswith(" gesendet"))
                     ) or (
                         ititle
                         in [
@@ -304,6 +304,12 @@ class DL:
         send asynchronous request, append future with filepath to self.futures
         """
         doc_url = doc["action"]["payload"]
+        if isinstance(doc_url, dict):
+            doc_url = doc_url.get("url")
+
+        if not isinstance(doc_url,str):
+            self.log.warning(f"No URL found in doc payload: {doc['action']['payload']}")
+            return
 
         if self.flat:
             doc_url_base = doc_url.split("?")[0]
@@ -324,7 +330,11 @@ class DL:
                 directory = self.output_path
 
             # If doc_type is something like 'Kosteninformation 2', then strip the 2 and save it in doc_type_num
-            doc_type = doc["title"].rsplit(" ")
+            doc_title = doc.get("title")
+            if doc_title is None:
+                doc_title = ""
+            doc_type = doc_title.rsplit(" ")
+            #doc_type = doc["title"].rsplit(" ")
             if doc_type[-1].isnumeric() is True:
                 doc_type_num = doc_type.pop()
             else:
@@ -332,7 +342,13 @@ class DL:
 
             doc_type = " ".join(doc_type)
             if doc_type == "Abrechnung Ausführung" or doc_type == "Abrechnungsausführung":
-                doc_type = "Abrechnung"
+                doc_type = "Abrechnung"#
+
+            if titleText is None:
+                titleText = ""
+            if subtitleText is None:
+                subtitleText = ""
+            
             titleText = titleText.replace("\n", "").replace("/", "-")
             subtitleText = subtitleText.replace("\n", "").replace("/", "-")
 
