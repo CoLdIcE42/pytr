@@ -314,12 +314,15 @@ def export_banking4(input_path, output_path, lang='auto'):
     #Build Strings
     timeline1_loc = os.path.join(input_path,"other_events.json")
     timeline2_loc = os.path.join(input_path,"events_with_documents.json")
+    timeline3_loc = os.path.join(input_path,"all_events.json")
 
     # Read relevant deposit timeline entries
     with open(timeline1_loc, encoding='utf-8') as f:
         timeline1 = json.load(f)
     with open(timeline2_loc, encoding='utf-8') as f:
         timeline2 = json.load(f)    
+    with open(timeline3_loc, encoding='utf-8') as f:
+        timeline3 = json.load(f)    
 
     # Write deposit_transactions.csv file
     # date, transaction, shares, amount, total, fee, isin, name
@@ -330,7 +333,7 @@ def export_banking4(input_path, output_path, lang='auto'):
         header = csv_fmt.format(date='date', type='type', value='value',label="label")
         f.write(header)
 
-        for event in timeline1+timeline2:
+        for event in timeline1+timeline2+timeline3:
             dateTime = datetime.fromisoformat(event['timestamp'][:19])
             date = dateTime.strftime('%Y-%m-%d')
 
