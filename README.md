@@ -13,8 +13,7 @@ __Table of Contents__
 * [Quickstart](#quickstart)
 * [Usage](#usage)
 * [Authentication](#authentication)
-  * [Web login (default)](#web-login-default)
-  * [App login](#app-login)
+  * [Web login](#web-login)
 * [Development](#development)
   * [Setting Up a Development Environment](#setting-up-a-development-environment)
   * [Linting and Code Formatting](#linting-and-code-formatting)
@@ -62,17 +61,18 @@ If you want to use the cutting-edge version, use this command instead:
 <!-- runcmd code:console uv run --python 3.13 pytr help --for-readme -->
 ```console
 usage: pytr [-h] [-V] [-v {warning,info,debug}] [--debug-logfile DEBUG_LOGFILE] [--debug-log-filter DEBUG_LOG_FILTER]
-            {help,login,portfolio,details,dl_docs,export_transactions,get_price_alarms,set_price_alarms,completion} ...
+            {help,login,portfolio,rates,details,dl_docs,export_transactions,get_price_alarms,set_price_alarms,get_savings_plans,completion} ...
 
 Use "pytr command_name --help" to get detailed help to a specific command
 
 Commands:
-  {help,login,portfolio,details,dl_docs,export_transactions,get_price_alarms,set_price_alarms,completion}
+  {help,login,portfolio,rates,details,dl_docs,export_transactions,get_price_alarms,set_price_alarms,get_savings_plans,completion}
                                         Desired action to perform
     help                                Print this help message
     login                               Check if credentials file exists. If not create it and ask for input. Try to
                                         login. Ask for device reset if needed
     portfolio                           Show current portfolio
+    rates                               Fetch current prices for a list of ISINs given as direct list or CSV input
     details                             Get details for an ISIN
     dl_docs                             Download all pdf documents from the timeline and sort them into folders. Also
                                         export account transactions (account_transactions.csv) and JSON files with all
@@ -81,6 +81,7 @@ Commands:
                                         into account_transactions.csv.
     get_price_alarms                    Get current price alarms
     set_price_alarms                    Set new price alarms
+    get_savings_plans                   Get current savings plans
     completion                          Print shell tab completion
 
 Options:
@@ -94,28 +95,26 @@ Options:
 
 ## Authentication
 
-There are two authentication methods:
+### Web login
 
-### Web login (default)
+Web login uses the public web-login endpoints at `api.traderepublic.com`. Two variants are available:
 
-Web login is the newer method that uses the same login method as [app.traderepublic.com](https://app.traderepublic.com/),
-meaning you receive a four-digit code in the TradeRepublic app or via SMS. This will keep you logged in your primary
-device, but means that you may need to repeat entering a new four-digit code ever so often when runnnig `pytr`.
+- **v1 (default)**: `pytr login`. You receive a four-digit code in the TradeRepublic app (or via SMS as a
+  fallback) and enter it in the terminal. This is the original behavior; nothing changes for existing users.
+  v1 requires passing an AWS WAF token with the login request; by default pytr fetches one automatically
+  via Playwright (requires the optional `playwright` extra: `pip install 'pytr[playwright]' && playwright install chromium`).
+  The pure-Python alternative `--waf-token awswaf` exists but has been reported to no longer work reliably.
+- **v2 (opt-in)**: `pytr login --v2`. Mirrors what
+  [app.traderepublic.com](https://app.traderepublic.com/) currently does. Instead of typing a four-digit code, you
+  confirm the login from a push notification in the Trade Republic mobile app. Accounts secured with an authenticator
+  app are asked for a code from that app instead. Useful if your account no longer issues a code via the app or SMS.
+  v2 does not require a WAF token; pytr skips it automatically when `--v2` is used.
+  Note that Trade Republic removed the SMS resend endpoint along with the v1 web login, so there is no SMS fallback
+  under `--v2`. The flag is available on every subcommand that performs a login, e.g. `pytr portfolio --v2`,
+  `pytr dl_docs --v2`.
 
-### App login
-
-App login is the older method that uses the same login method as the TradeRepublic app. First you need to perform a
-device reset - a private key will be generated that pins your "device". The private key is saved to your keyfile. This
-procedure will log you out from your mobile device.
-
-```sh
- pytr login
- # or
- pytr login --phone_no +49123456789 --pin 1234
-```
-
-If no arguments are supplied pytr will look for them in the file `~/.pytr/credentials` (the first line must contain
-the phone number, the second line the pin). If the file doesn't exist pytr will ask for for the phone number and pin.
+Both variants keep you logged in on your primary device, but you may need to re-authenticate every so often when
+running `pytr`.
 
 ## Development
 
